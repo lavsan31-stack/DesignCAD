@@ -12,19 +12,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
       - name: Check Java
-        run: java -version
+        run: |
+          java -version
 
       - name: Check Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          adb --version || true
+          adb --version
 
       - name: Create test file
         run: |
