@@ -13,25 +13,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install JDK 17
-        uses: actions/setup-java@v4
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Install Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK components
-        run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
-
-      - name: Create DesignCAD project
+      - name: Create project
         shell: bash
         run: |
           mkdir -p app/src/main/java/com/example/designcad
@@ -87,12 +82,6 @@ jobs:
                   versionCode = 1
                   versionName = "0.1.0"
               }
-
-              buildTypes {
-                  release {
-                      isMinifyEnabled = false
-                  }
-              }
           }
 
           kotlin {
@@ -101,120 +90,34 @@ jobs:
           EOF
 
           cat > app/src/main/AndroidManifest.xml <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
               <application
                   android:theme="@style/AppTheme"
                   android:label="DesignCAD"
-                  android:allowBackup="true"
-                  android:supportsRtl="true">
-
+                  android:allowBackup="true">
                   <activity
                       android:name=".MainActivity"
                       android:screenOrientation="landscape"
                       android:exported="true">
-
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
-
                   </activity>
-
               </application>
-
           </manifest>
           EOF
 
           cat > app/src/main/res/values/styles.xml <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
           <resources>
-
               <style name="AppTheme"
                   parent="@android:style/Theme.Material.Light.NoActionBar">
-
                   <item name="android:fontFamily">sans</item>
                   <item name="android:colorAccent">#4285F4</item>
                   <item name="android:navigationBarColor">#101114</item>
                   <item name="android:statusBarColor">#101114</item>
-                  <item name="android:windowLightStatusBar">false</item>
-
               </style>
-
           </resources>
-          EOF
-
-          cat > app/src/main/java/com/example/designcad/Vec3.kt <<'EOF'
-          package com.example.designcad
-
-          data class Vec3(
-              var x: Float,
-              var y: Float,
-              var z: Float
-          )
-          EOF
-
-          cat > app/src/main/java/com/example/designcad/CubeModel.kt <<'EOF'
-          package com.example.designcad
-
-          enum class Face {
-              FRONT,
-              BACK,
-              LEFT,
-              RIGHT,
-              TOP,
-              BOTTOM
-          }
-
-          class CubeModel {
-
-              var width = 2f
-              var height = 2f
-              var depth = 2f
-
-              var selectedFace: Face? = null
-
-              fun vertices(): Array<Vec3> {
-                  val x = width / 2f
-                  val y = height / 2f
-                  val z = depth / 2f
-
-                  return arrayOf(
-                      Vec3(-x, -y, -z),
-                      Vec3(x, -y, -z),
-                      Vec3(x, y, -z),
-                      Vec3(-x, y, -z),
-
-                      Vec3(-x, -y, z),
-                      Vec3(x, -y, z),
-                      Vec3(x, y, z),
-                      Vec3(-x, y, z)
-                  )
-              }
-
-              fun pushPull(delta: Float) {
-                  when (selectedFace) {
-                      Face.FRONT, Face.BACK ->
-                          depth = (depth + delta).coerceAtLeast(0.2f)
-
-                      Face.LEFT, Face.RIGHT ->
-                          width = (width + delta).coerceAtLeast(0.2f)
-
-                      Face.TOP, Face.BOTTOM ->
-                          height = (height + delta).coerceAtLeast(0.2f)
-
-                      null -> Unit
-                  }
-              }
-
-              fun reset() {
-                  width = 2f
-                  height = 2f
-                  depth = 2f
-                  selectedFace = null
-              }
-          }
           EOF
 
           cat > app/src/main/java/com/example/designcad/MainActivity.kt <<'EOF'
@@ -230,12 +133,8 @@ jobs:
           import android.widget.TextView
           import kotlin.math.cos
           import kotlin.math.sin
-          import kotlin.math.abs
 
           class MainActivity : Activity() {
-
-              private lateinit var cadView: CadView
-              private lateinit var info: TextView
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -246,418 +145,317 @@ jobs:
 
                   val toolbar = LinearLayout(this)
                   toolbar.orientation = LinearLayout.HORIZONTAL
-                  toolbar.setPadding(8, 4, 8, 4)
-                  toolbar.setBackgroundColor(Color.rgb(30, 31, 36))
-
-                  fun button(text: String): Button {
-                      return Button(this).apply {
-                          this.text = text
-                          textSize = 11f
-                      }
-                  }
 
                   val title = TextView(this)
                   title.text = "  DesignCAD"
-                  title.textSize = 19f
+                  title.textSize = 20f
                   title.setTextColor(Color.WHITE)
 
                   toolbar.addView(
                       title,
                       LinearLayout.LayoutParams(
                           0,
-                          LinearLayout.LayoutParams.WRAP_CONTENT,
+                          -2,
                           1f
                       )
                   )
 
-                  val cubeButton = button("＋ Куб")
-                  val selectButton = button("Выбор")
-                  val pushButton = button("Push/Pull")
-                  val resetButton = button("Сброс")
+                  val cube = Button(this)
+                  cube.text = "＋ Куб"
 
-                  toolbar.addView(cubeButton)
-                  toolbar.addView(selectButton)
-                  toolbar.addView(pushButton)
-                  toolbar.addView(resetButton)
+                  val reset = Button(this)
+                  reset.text = "Сброс"
+
+                  toolbar.addView(cube)
+                  toolbar.addView(reset)
 
                   root.addView(toolbar)
 
-                  cadView = CadView()
+                  val view = CadView(this)
 
                   root.addView(
-                      cadView,
+                      view,
                       LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          -1,
                           0,
                           1f
                       )
                   )
 
-                  info = TextView(this)
-                  info.text = "Куб 20 × 20 × 20 мм"
-                  info.textSize = 14f
-                  info.setTextColor(Color.LTGRAY)
-                  info.setPadding(16, 8, 16, 8)
-                  info.setBackgroundColor(Color.rgb(30, 31, 36))
+                  cube.setOnClickListener {
+                      view.resetCube()
+                  }
 
-                  root.addView(info)
+                  reset.setOnClickListener {
+                      view.resetCube()
+                  }
 
                   setContentView(root)
-
-                  cubeButton.setOnClickListener {
-                      cadView.cube.reset()
-                      cadView.invalidate()
-                      updateInfo()
-                  }
-
-                  selectButton.setOnClickListener {
-                      cadView.mode = CadView.Mode.SELECT
-                      info.text = "Выбор: коснитесь грани куба"
-                  }
-
-                  pushButton.setOnClickListener {
-                      cadView.mode = CadView.Mode.PUSH_PULL
-                      info.text = "Push/Pull: проведите пальцем вверх/вниз"
-                  }
-
-                  resetButton.setOnClickListener {
-                      cadView.cube.reset()
-                      cadView.rotationX = -25f
-                      cadView.rotationY = 35f
-                      cadView.invalidate()
-                      updateInfo()
-                  }
               }
 
-              private fun updateInfo() {
-                  val c = cadView.cube
-                  val face = c.selectedFace
+              class CadView(
+                  activity: Activity
+              ) : View(activity) {
 
-                  info.text =
-                      if (face == null) {
-                          "Куб %.1f × %.1f × %.1f мм".format(
-                              c.width * 10f,
-                              c.height * 10f,
-                              c.depth * 10f
-                          )
-                      } else {
-                          "Выбрана $face | %.1f × %.1f × %.1f мм".format(
-                              c.width * 10f,
-                              c.height * 10f,
-                              c.depth * 10f
-                          )
-                      }
-              }
-
-              inner class CadView : View(this@MainActivity) {
-
-                  enum class Mode {
-                      SELECT,
-                      PUSH_PULL
-                  }
-
-                  val cube = CubeModel()
-
-                  var mode = Mode.SELECT
-
-                  var rotationX = -25f
-                  var rotationY = 35f
+                  private var rotationX = -25f
+                  private var rotationY = 35f
 
                   private var lastX = 0f
                   private var lastY = 0f
-                  private var moved = false
 
-                  private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-                  private val stroke = Paint(Paint.ANTI_ALIAS_FLAG)
+                  private val paint =
+                      Paint(Paint.ANTI_ALIAS_FLAG)
+
+                  private val line =
+                      Paint(Paint.ANTI_ALIAS_FLAG)
 
                   init {
-                      setBackgroundColor(Color.rgb(22, 23, 27))
+                      setBackgroundColor(
+                          Color.rgb(22, 23, 27)
+                      )
 
-                      stroke.style = Paint.Style.STROKE
-                      stroke.strokeWidth = 3f
+                      line.style =
+                          Paint.Style.STROKE
+
+                      line.strokeWidth = 3f
+                      line.color = Color.DKGRAY
                   }
 
-                  data class P(
-                      val x: Float,
-                      val y: Float,
-                      val z: Float
-                  )
+                  fun resetCube() {
+                      rotationX = -25f
+                      rotationY = 35f
+                      invalidate()
+                  }
 
-                  data class FaceDraw(
-                      val face: Face,
-                      val indices: IntArray
-                  )
-
-                  override fun onDraw(canvas: Canvas) {
+                  override fun onDraw(
+                      canvas: Canvas
+                  ) {
                       super.onDraw(canvas)
 
                       drawGrid(canvas)
-
-                      val vertices = cube.vertices()
-                      val points = Array(vertices.size) {
-                          project(vertices[it])
-                      }
-
-                      val faces = listOf(
-                          FaceDraw(Face.FRONT, intArrayOf(4, 5, 6, 7)),
-                          FaceDraw(Face.BACK, intArrayOf(0, 1, 2, 3)),
-                          FaceDraw(Face.LEFT, intArrayOf(0, 4, 7, 3)),
-                          FaceDraw(Face.RIGHT, intArrayOf(1, 5, 6, 2)),
-                          FaceDraw(Face.TOP, intArrayOf(3, 7, 6, 2)),
-                          FaceDraw(Face.BOTTOM, intArrayOf(0, 4, 5, 1))
-                      )
-
-                      val sorted = faces.sortedBy {
-                          face -> -face.indices.map { points[it].z }.average()
-                      }
-
-                      sorted.forEach {
-                          drawFace(canvas, it, points)
-                      }
+                      drawCube(canvas)
                   }
 
-                  private fun project(v: Vec3): P {
-                      val ry = Math.toRadians(rotationY.toDouble())
-                      val cy = cos(ry).toFloat()
-                      val sy = sin(ry).toFloat()
-
-                      val x1 = v.x * cy - v.z * sy
-                      val z1 = v.x * sy + v.z * cy
-
-                      val rx = Math.toRadians(rotationX.toDouble())
-                      val cx = cos(rx).toFloat()
-                      val sx = sin(rx).toFloat()
-
-                      val y2 = v.y * cx - z1 * sx
-                      val z2 = v.y * sx + z1 * cx
-
-                      val distance = 8f
-                      val scale = distance / (distance + z2)
-
-                      return P(
-                          width / 2f + x1 * 130f * scale,
-                          height / 2f - y2 * 130f * scale,
-                          z2
-                      )
-                  }
-
-                  private fun drawFace(
-                      canvas: Canvas,
-                      face: FaceDraw,
-                      points: Array<P>
+                  private fun drawGrid(
+                      canvas: Canvas
                   ) {
-                      val path = Path()
+                      val p =
+                          Paint(Paint.ANTI_ALIAS_FLAG)
 
-                      val first = points[face.indices[0]]
-                      path.moveTo(first.x, first.y)
-
-                      for (i in 1 until face.indices.size) {
-                          val p = points[face.indices[i]]
-                          path.lineTo(p.x, p.y)
-                      }
-
-                      path.close()
-
-                      val selected = cube.selectedFace == face.face
-
-                      fill.style = Paint.Style.FILL
-                      fill.color =
-                          if (selected) {
-                              Color.rgb(45, 140, 235)
-                          } else {
-                              when (face.face) {
-                                  Face.TOP ->
-                                      Color.rgb(115, 145, 180)
-
-                                  Face.FRONT ->
-                                      Color.rgb(85, 110, 145)
-
-                                  else ->
-                                      Color.rgb(65, 80, 105)
-                              }
-                          }
-
-                      canvas.drawPath(path, fill)
-
-                      stroke.color =
-                          if (selected) Color.WHITE
-                          else Color.rgb(25, 25, 30)
-
-                      stroke.strokeWidth =
-                          if (selected) 5f else 3f
-
-                      canvas.drawPath(path, stroke)
-                  }
-
-                  private fun drawGrid(canvas: Canvas) {
-                      val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-                      paint.color = Color.rgb(38, 40, 46)
-                      paint.strokeWidth = 1f
-
-                      val cy = height / 2f
+                      p.color =
+                          Color.rgb(38, 40, 46)
 
                       for (i in -10..10) {
-                          val x = width / 2f + i * 35f
+
+                          val x =
+                              width / 2f +
+                                      i * 35f
 
                           canvas.drawLine(
                               x,
-                              cy - 350,
+                              height / 2f - 350,
                               x,
-                              cy + 350,
-                              paint
+                              height / 2f + 350,
+                              p
                           )
                       }
 
                       for (i in -10..10) {
-                          val y = cy + i * 35f
+
+                          val y =
+                              height / 2f +
+                                      i * 35f
 
                           canvas.drawLine(
                               width / 2f - 350,
                               y,
                               width / 2f + 350,
                               y,
-                              paint
+                              p
                           )
                       }
                   }
 
-                  override fun onTouchEvent(event: MotionEvent): Boolean {
-                      when (event.actionMasked) {
+                  private fun drawCube(
+                      canvas: Canvas
+                  ) {
+
+                      val size = 1.5f
+
+                      val vertices =
+                          arrayOf(
+                              floatArrayOf(-size, -size, -size),
+                              floatArrayOf(size, -size, -size),
+                              floatArrayOf(size, size, -size),
+                              floatArrayOf(-size, size, -size),
+
+                              floatArrayOf(-size, -size, size),
+                              floatArrayOf(size, -size, size),
+                              floatArrayOf(size, size, size),
+                              floatArrayOf(-size, size, size)
+                          )
+
+                      val points =
+                          vertices.map {
+                              project(
+                                  it[0],
+                                  it[1],
+                                  it[2]
+                              )
+                          }
+
+                      val faces =
+                          arrayOf(
+                              intArrayOf(4, 5, 6, 7),
+                              intArrayOf(0, 1, 2, 3),
+                              intArrayOf(0, 4, 7, 3),
+                              intArrayOf(1, 5, 6, 2),
+                              intArrayOf(3, 7, 6, 2),
+                              intArrayOf(0, 4, 5, 1)
+                          )
+
+                      paint.style =
+                          Paint.Style.FILL
+
+                      paint.color =
+                          Color.rgb(
+                              85,
+                              115,
+                              150
+                          )
+
+                      for (face in faces) {
+
+                          val path =
+                              Path()
+
+                          path.moveTo(
+                              points[face[0]].first,
+                              points[face[0]].second
+                          )
+
+                          for (i in 1..3) {
+                              path.lineTo(
+                                  points[face[i]].first,
+                                  points[face[i]].second
+                              )
+                          }
+
+                          path.close()
+
+                          canvas.drawPath(
+                              path,
+                              paint
+                          )
+
+                          canvas.drawPath(
+                              path,
+                              line
+                          )
+                      }
+                  }
+
+                  private fun project(
+                      x: Float,
+                      y: Float,
+                      z: Float
+                  ): Pair<Float, Float> {
+
+                      val ry =
+                          Math.toRadians(
+                              rotationY.toDouble()
+                          )
+
+                      val cy =
+                          cos(ry).toFloat()
+
+                      val sy =
+                          sin(ry).toFloat()
+
+                      val x1 =
+                          x * cy - z * sy
+
+                      val z1 =
+                          x * sy + z * cy
+
+                      val rx =
+                          Math.toRadians(
+                              rotationX.toDouble()
+                          )
+
+                      val cx =
+                          cos(rx).toFloat()
+
+                      val sx =
+                          sin(rx).toFloat()
+
+                      val y2 =
+                          y * cx - z1 * sx
+
+                      val scale =
+                          8f /
+                                  (8f + z1)
+
+                      return Pair(
+                          width / 2f +
+                                  x1 * 130f * scale,
+                          height / 2f -
+                                  y2 * 130f * scale
+                      )
+                  }
+
+                  override fun onTouchEvent(
+                      event: MotionEvent
+                  ): Boolean {
+
+                      when (event.action) {
 
                           MotionEvent.ACTION_DOWN -> {
                               lastX = event.x
                               lastY = event.y
-                              moved = false
-                              return true
                           }
 
                           MotionEvent.ACTION_MOVE -> {
-                              val dx = event.x - lastX
-                              val dy = event.y - lastY
 
-                              if (abs(dx) > 3 || abs(dy) > 3) {
-                                  moved = true
-                              }
+                              val dx =
+                                  event.x - lastX
 
-                              if (
-                                  mode == Mode.PUSH_PULL &&
-                                  cube.selectedFace != null
-                              ) {
-                                  cube.pushPull(-dy * 0.01f)
-                                  invalidate()
+                              val dy =
+                                  event.y - lastY
 
-                                  info.text =
-                                      "Push/Pull | %.1f × %.1f × %.1f мм".format(
-                                          cube.width * 10f,
-                                          cube.height * 10f,
-                                          cube.depth * 10f
+                              rotationY +=
+                                  dx * 0.5f
+
+                              rotationX =
+                                  (rotationX +
+                                          dy * 0.5f)
+                                      .coerceIn(
+                                          -89f,
+                                          89f
                                       )
-                              } else {
-                                  rotationY += dx * 0.5f
-                                  rotationX =
-                                      (rotationX + dy * 0.5f)
-                                          .coerceIn(-89f, 89f)
-
-                                  invalidate()
-                              }
 
                               lastX = event.x
                               lastY = event.y
 
-                              return true
-                          }
-
-                          MotionEvent.ACTION_UP -> {
-                              if (!moved) {
-                                  pickFace(event.x, event.y)
-                              }
-
-                              return true
+                              invalidate()
                           }
                       }
 
                       return true
                   }
-
-                  private fun pickFace(
-                      x: Float,
-                      y: Float
-                  ) {
-                      val vertices = cube.vertices()
-                      val points = Array(vertices.size) {
-                          project(vertices[it])
-                      }
-
-                      val faces = listOf(
-                          FaceDraw(Face.FRONT, intArrayOf(4, 5, 6, 7)),
-                          FaceDraw(Face.BACK, intArrayOf(0, 1, 2, 3)),
-                          FaceDraw(Face.LEFT, intArrayOf(0, 4, 7, 3)),
-                          FaceDraw(Face.RIGHT, intArrayOf(1, 5, 6, 2)),
-                          FaceDraw(Face.TOP, intArrayOf(3, 7, 6, 2)),
-                          FaceDraw(Face.BOTTOM, intArrayOf(0, 4, 5, 1))
-                      )
-
-                      val sorted = faces.sortedBy {
-                          face -> -face.indices.map { points[it].z }.average()
-                      }
-
-                      for (face in sorted) {
-                          val polygon = face.indices.map { points[it] }
-
-                          if (inside(x, y, polygon)) {
-                              cube.selectedFace = face.face
-                              invalidate()
-                              updateInfo()
-                              return
-                          }
-                      }
-                  }
-
-                  private fun inside(
-                      x: Float,
-                      y: Float,
-                      polygon: List<P>
-                  ): Boolean {
-                      var result = false
-                      var j = polygon.lastIndex
-
-                      for (i in polygon.indices) {
-                          val xi = polygon[i].x
-                          val yi = polygon[i].y
-                          val xj = polygon[j].x
-                          val yj = polygon[j].y
-
-                          if (
-                              ((yi > y) != (yj > y)) &&
-                              (x < (xj - xi) * (y - yi) /
-                                  (yj - yi + 0.00001f) + xi)
-                          ) {
-                              result = !result
-                          }
-
-                          j = i
-                      }
-
-                      return result
-                  }
               }
           }
           EOF
 
-      - name: Download Gradle
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
-          unzip -q gradle-8.11.1-bin.zip
-
       - name: Build APK
         run: |
-          ./gradle-8.11.1/bin/gradle assembleDebug --stacktrace
+          gradle wrapper --gradle-version 8.11.1
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
 
-      - name: Upload DesignCAD APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: DesignCAD-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
